@@ -1,0 +1,379 @@
+# Intro 
+
+- What I will NOT cover
+	- What is MCP, Skills
+	- How to build an agentic workflow
+
+- What I will cover
+	- Agent architecture
+	- How harnesses like Cursor and Claude Code run
+	- How to use tokens efficiently 
+
+
+
+# LLMs are Stateless
+
+- Has no memory of our interaction
+- Cannot run code
+- Cannot see files
+
+
+- LLMs receive all conversation history in the current session 
+- LLMs have a "stateful wrapper" 
+- Example: 
+
+	First message  
+
+		Request (HTTP)
+
+			POST /v1/messages HTTP/1.1
+			Host: api.anthropic.com
+			Content-Type: application/json
+			x-api-key: sk-ant-xxxxxxxxxxxxxxxx
+			anthropic-version: 2023-06-01
+
+			{
+			  "model": "claude-sonnet-4-6",
+			  "max_tokens": 1024,
+			  "messages": [
+			    {
+			      "role": "user",
+			      "content": "What's the time complexity of binary search?"
+			    }
+			  ]
+			}
+
+		Response (JSON)
+
+			{
+			  "id": "msg_01A...",
+			  "role": "assistant",
+			  "content": [
+			    {
+			      "type": "text",
+			      "text": "Binary search runs in O(log n) time, since it halves the search space on each comparison."
+			    }
+			  ]
+			}	
+
+
+	Second message 
+
+		Request (HTTP)
+
+			POST /v1/messages HTTP/1.1
+			Host: api.anthropic.com
+			Content-Type: application/json
+			x-api-key: sk-ant-xxxxxxxxxxxxxxxx
+			anthropic-version: 2023-06-01
+
+			{
+			  "model": "claude-sonnet-4-6",
+			  "max_tokens": 1024,
+			  "messages": [
+			    {
+			      "role": "user",
+			      "content": "What's the time complexity of binary search?"
+			    },
+			    {
+			      "role": "assistant",
+			      "content": "Binary search runs in O(log n) time, since it halves the search space on each comparison."
+			    },
+			    {
+			      "role": "user",
+			      "content": "Why is that better than linear search?"
+			    }
+			  ]
+			}
+
+		Response (JSON)
+
+			{
+			  "id": "msg_01B...",
+			  "role": "assistant",
+			  "content": [
+			    {
+			      "type": "text",
+			      "text": "Linear search is O(n) because it may have to check every element. As input size grows, O(log n) scales far more slowly..."
+			    }
+			  ]
+			}
+
+
+
+# LLMs need State Management
+
+- Done by harness wrappers like Cursor, Claude Code, ChatGPT website 
+- LLMs receive a context window 
+- Limited by maximum context window. Capped by total number of tokens it can process at once. 
+
+- Several words exist to refer to this
+	- Harness
+	- Agent runtime
+	- Agent loop
+	- Client (Anthropic)
+	- Orchestrator 
+
+- What is harness: Code sitting between model <> real world 
+
+
+# Agent Execution Loop
+
+=========================
+while not done:
+    1. assemble context (system prompt + history + files + tool results)
+    2. call the model
+    3. parse output: text response, or a tool-call request?
+    4. if tool-call: execute it locally, capture result, go to 1
+    5. if text/done: show to user, wait for next input
+=========================
+
+
+
+# Tool Use
+
+- LLMs cannot "run" anything
+- Instead, outputs structured text (Tool name + JSON args)
+- Harness (like Cursor) executes bash, read_fle, edit_file, etc. 
+- Send the result back to LLM 
+
+
+## Tool Schema 
+
+- Sent to the model every single model
+- What tools exist, what they do, and what arguments they need 
+- Example: 
+
+	{
+	  "name": "read_file",
+	  "description": "Reads the contents of a file at a given path",
+	  "input_schema": {
+	    "type": "object",
+	    "properties": {
+	      "path": { "type": "string", "description": "Absolute file path" }
+	    },
+	    "required": ["path"]
+	  }
+	}
+
+
+## Tool Use Request (model's output)
+
+- Model decides it needs to read a file
+- Model requests tool use "read_file"
+- tool_use_id links the result back to this request 
+
+- Example: 
+
+	{
+	  "type": "tool_use",
+	  "id": "toolu_01ABC",
+	  "name": "read_file",
+	  "input": { "path": "/data/notes.txt" }
+	}
+
+
+## Harness executes 
+
+- Harness: code sitting between model <> real world
+
+- Sees tool_use in model's response 
+- Opens the file on disk
+
+	fs.readFile('/data/notes.txt')
+
+- Append tool_result to context window 
+
+	{
+	  "type": "tool_result",
+	  "tool_use_id": "toolu_01ABC",
+	  "content": "Meeting notes: discuss Q3 roadmap, budget review..."
+	}
+
+- Harness sends the entire context window to model 
+	
+	Wait, that sounds so inefficient! Yes, we will discuss caching in a bit 
+
+
+## Model's Final Response 
+
+- Converts tool result and other findings into natural language
+- Sent back to harness
+- Harness displays 
+
+	"The file contains meeting notes — looks like it covers the Q3 roadmap and a budget review."
+
+
+## Is it done yet? 
+
+- Model has no concept of "done"
+- Model may need to use a series of tools
+- How can harness decide if the work is done?
+- Every model response includes the field: stop_reason 
+
+	stop_reason: "tool_use" — model needs more info. LOOP. 
+	stop_reason: "end_turn" — model has finished 
+
+
+
+# Context Building 
+
+- System prompt 
+	- Tool definitions
+	- Behavioral instructions
+
+- Memory
+	- CLAUDE.md
+	- .cursor/rules
+
+- File context 
+	- Cursor: RAG. Pre-indexing
+	- Claude Code: Explore filesystem live (grep, glob, read)
+		- glob: pattern-match filenames. **/*test*.py
+		- grep: text search across repo
+		- read_file: open specific file
+
+- Conversation history
+- Tool result
+
+
+--> Serialized into a JSON blob. 
+	Model can only consume text/token 
+
+
+## More on Cursor's Codebase Indexing 
+
+- Codebase can be large. Not enough context window. 
+
+- Precomputed RAG index
+	- Chunking
+		- Code is split into chunks (functions, classes), not whole files. 
+
+	- Embedding
+		- Each chunk passes through an embedding model
+		- Places semantically similar code near in vector space
+
+	- Vector index
+		- Embeddings stored in vector DB for fast search
+
+	- Incremental re-indexing
+		- After editing files, update only the changed chunks 
+
+
+## RAG vs. Live Exploration
+- RAG: fast, cheap. stale until re-indexed. 
+- Live exploration: accurate, up-to-date. expensive. 
+
+
+
+# Safety
+
+## Permission 
+- approval prompts 
+- how is it managed? 
+
+
+## Hooks 
+
+- enforce hard constraints on model output
+- example, "never touch .env"
+
+
+## Validation / Sandboxing 
+
+- Philosophy: Never trust the model. Build a system around it to contain the consequences. 
+
+
+## Misinformed Arguments
+- Problem: 
+	- Model: {"path": "src/auth.py", "encoding": "utf-9"}
+	- utf-9 doesn't exist
+
+- Solution: 
+	- harness runs schema validation 
+	- Send error as the tool result
+
+
+## Dangerous Calls 
+- Problem: 
+	- Model calls bash with rm -rf /
+
+- Solutions: 
+	- Execute inside a container (Docker/gVisor)
+	- Permission system
+		- Certain commands or path require explicit human approval
+	- Limit resources
+		- ulimit
+		- No network access by default
+		- timeout 
+
+
+
+# Performance / Cost Engineering
+
+## Application level
+
+- 
+- 
+- 
+
+
+## Computation level 
+- Prompt caching
+	- KV cache in GPU
+	- avoid re-computing the same prefix
+
+- Streaming output
+- Prallel tool calls
+- Allow users to cancel  
+
+
+## Compaction 
+- most tools we use prob aren't using truncation but just in case 
+- Cannot be trusted
+- Proactively summarize and document for important work 
+
+- Naive truncation: "drop oldest 20 messages"
+	- Cheap
+	- Loses context 
+- LLM summarization
+	- Even than, is the harness only sending latest 20 messages? 
+
+
+## Sub-agents / Planning 
+- Spin up a fresh context window for a sub-task 
+- efficient, expensive 
+
+
+
+# Recommended Practice
+
+- Avoid a large AGENTS.md file. Why? 
+	- Context is scarce
+	- Too much guidance == No guidance
+	- Requires heavy maintanance
+	- Difficult to verify
+
+- Treat AGENTS.md as the table of contents, not encyclopedia. 
+	- Knowledge base with a map. 
+
+
+
+
+
+
+# More resources: 
+- https://openai.com/index/harness-engineering/ 
+
+
+
+=======================
+
+
+Topics to cover
+
+Hooks
+Permission
+Response streaming 
+
+I still don't get non-GPU prompt caching. anthropic server side?
