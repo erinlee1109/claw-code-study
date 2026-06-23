@@ -68,9 +68,10 @@
 
 # LLMs need State Management
 
-- Done by harness wrappers like Cursor, Claude Code, ChatGPT website 
-- LLMs receive a context window 
-- Limited by maximum context window. Capped by total number of tokens it can process at once. 
+- Done by harness wrappers like Cursor, Claude Code, ChatGPT website
+- What needs to be done? 
+	- LLMs receive a context window 
+		- Limited by maximum context window. Capped by total number of tokens it can process at once. 
 
 - Several words exist to refer to this
 	- Harness
