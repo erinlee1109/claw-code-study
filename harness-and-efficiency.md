@@ -69,19 +69,26 @@
 # LLMs need State Management
 
 - Done by harness wrappers like Cursor, Claude Code, ChatGPT website
-- What needs to be done? 
-	- LLMs receive a context window 
-		- Limited by maximum context window. Capped by total number of tokens it can process at once. 
 
 - Several words exist to refer to this
 	- Harness
 	- Agent runtime
 	- Agent loop
-	- Client (Anthropic)
 	- Orchestrator 
 	- Scaffold
 
+
+- Why? 
+	- Model decides it needs to read a file for further reasoning
+		- Model has no capability to read a file 
+	
+	- User has a very large codebase
+		- Model is capped by total number of tokens it can process at once. 
+		- Need to pass selective content to the model 
+
+
 - What is harness: Code sitting between model <> real world 
+	- In charge of agent execution loop
 	- Claude Code -> harness 
 	- Claude Agent SDK -> build your OWN harness
 
@@ -96,105 +103,6 @@ while not done:
     4. if tool-call: execute it locally, capture result, go to 1
     5. if text/done: show to user, wait for next input
 ```
-
-
-
-# Tool Use
-
-- LLMs cannot "run" anything
-- Instead, outputs structured text (Tool name + JSON args)
-- Harness (like Cursor) executes bash, read_file, edit_file, etc.
-- Send the result back to LLM 
-
-
-## Tool Schema 
-
-- Sent to the model every single call, NOT once per session
-- What tools exist, what they do, and what arguments they need 
-- Example: 
-
-```json
-{
-  "name": "read_file",
-  "description": "Reads the contents of a file at a given path",
-  "input_schema": {
-    "type": "object",
-    "properties": {
-      "path": { "type": "string", "description": "Absolute file path" }
-    },
-    "required": ["path"]
-  }
-}
-```
-
-- Recommended practice: Turn off MCPs you don't need 
-
-
-## Tool Use Request (model's output)
-
-- Model decides it needs to read a file
-- Model requests tool use "read_file"
-- `tool_use_id` links the result back to this request 
-
-- Example: 
-
-```json
-{
-  "type": "tool_use",
-  "id": "toolu_01ABC",
-  "name": "read_file",
-  "input": { "path": "/data/notes.txt" }
-}
-```
-
-
-## Harness executes 
-
-- Harness: code sitting between model <> real world
-
-- Sees `tool_use` in model's response 
-- Opens the file on disk
-
-```javascript
-fs.readFile('/data/notes.txt')
-```
-
-- Append `tool_result` to context window 
-
-```json
-{
-  "type": "tool_result",
-  "tool_use_id": "toolu_01ABC",
-  "content": "Meeting notes: discuss Q3 roadmap, budget review..."
-}
-```
-
-- Harness sends the ENTIRE context window to model 
-	
-	Wait, that sounds so inefficient! Yes, we will discuss caching in a bit 
-
-
-## Model's Final Response 
-
-- Converts tool result and other findings into natural language
-- Sent back to harness
-- Harness displays 
-
-	"The file contains meeting notes — looks like it covers the Q3 roadmap and a budget review."
-
-
-## Is it done yet? 
-
-- Model has no concept of "done"
-- Model may need to use a series of tools
-- How can harness decide if the work is done?
-- Every model response includes the field: `stop_reason` 
-
-```
-stop_reason: "tool_use" — model needs more info. LOOP. 
-stop_reason: "end_turn" — model has finished 
-...
-``` 
 
 
 
@@ -238,7 +146,7 @@ stop_reason: "end_turn" — model has finished
 	- Why? For caching
 
 
-## More on Cursor's Codebase Indexing 
+# More on Cursor's Codebase Indexing 
 
 - Codebase can be large. Not enough context window. 
 - RAG Philosophy: Embed once, retrieve only what's relevant, when it's relevant
@@ -265,39 +173,103 @@ stop_reason: "end_turn" — model has finished
 
 
 
-# Safety
+# Tool Use
 
-## Permissions
-- Harness is the gatekeeper 
-- Enforces permission gate before all `tool_use` calls
-	- Allow 
-	- Ask user
-	- Block
+- Models cannot "run" anything. Instead, outputs structured text 
+	- Output: Tool name + JSON args
+- Harness (like Cursor) executes and sends the result back to model
+	- Tools: bash, read_file, edit_file, etc.
 
 
-- Hooks: Code that runs on trigger to automatically enforce constraints 
-	- Common hooks
-		- `PreToolUse`: block call, modify input
-		- `PostToolUse`: inspect result 
+## Tool Schema 
 
-	- Example, "never touch `.env`"
-		- Model can't follow rules 
-		- Model outputs `tool_use` request to read the `.env` file 
-		- Harness's `PreToolUse` blocks it 
+- What tools exist, what they do, and what arguments they need 
+- Sent to the model every single call, NOT once per session
+
+- Example schema: 
+
+```json
+{
+  "name": "read_file",
+  "description": "Reads the contents of a file at a given path",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "path": { "type": "string", "description": "Absolute file path" }
+    },
+    "required": ["path"]
+  }
+}
+```
+
+- Recommended practice: Turn off MCPs you don't need 
 
 
-## Containment
+## Tool Use Request (model's output)
 
-- Philosophy: Never trust the model. Build a system to contain the consequences. 
+- Model decides it needs to read a file
+	- Model requests tool use "read_file"
+- `tool_use_id` links the result back to this request 
 
-- Bad input (malformed, not malicious)
-	- e.g. `{"encoding": "utf-9"}`
-	- schema validation catches it, error returned as `tool_result`
+- Example tool_use request: 
 
-- Bad input (malicious/destructive)
-	- e.g. `rm -rf /`
-	- contained via sandboxing (Docker/gVisor), resource limits (`ulimit`, `timeout`, no network by default)
+```json
+{
+  "type": "tool_use",
+  "id": "toolu_01ABC",
+  "name": "read_file",
+  "input": { "path": "/data/notes.txt" }
+}
+```
 
+
+## Harness executes 
+
+- Harness: code sitting between model <> real world
+
+- Sees `tool_use` in model's response 
+	- Opens the file on disk
+
+```javascript
+fs.readFile('/data/notes.txt')
+```
+
+- Append `tool_result` to context window 
+
+```json
+{
+  "type": "tool_result",
+  "tool_use_id": "toolu_01ABC",
+  "content": "Meeting notes: discuss Q3 roadmap, budget review..."
+}
+```
+
+- Harness sends the ENTIRE context window to model 
+	
+	Wait, that sounds so inefficient! Yes, we will discuss caching in a bit 
+
+
+## Model's Final Response 
+
+- Converts tool result and other findings into natural language
+- Sent back to harness
+- Harness displays 
+
+	"The file contains meeting notes — looks like it covers the Q3 roadmap and a budget review."
+
+
+## Is it done yet? 
+
+- Model has no concept of "done"
+- Model may need to use a series of tools
+- How can harness decide if the work is done?
+- Every model response includes the field: `stop_reason` 
+
+```
+stop_reason: "tool_use" — model needs more info. LOOP. 
+stop_reason: "end_turn" — model has finished 
+...
+``` 
 
 
 # Performance / Cost Engineering
@@ -348,6 +320,41 @@ stop_reason: "end_turn" — model has finished
 - Sub-agent returns summary to parent
 - Good for parent's context.
 - Expensive 
+
+
+
+# Safety
+
+## Permissions
+- Harness is the gatekeeper 
+- Enforces permission gate before all `tool_use` calls
+	- Allow 
+	- Ask user
+	- Block
+
+
+- Hooks: Code that runs on trigger to automatically enforce constraints 
+	- Common hooks
+		- `PreToolUse`: block call, modify input
+		- `PostToolUse`: inspect result 
+
+	- Example, "never touch `.env`"
+		- Model can't follow rules 
+		- Model outputs `tool_use` request to read the `.env` file 
+		- Harness's `PreToolUse` blocks it 
+
+
+## Containment
+
+- Philosophy: Never trust the model. Build a system to contain the consequences. 
+
+- Bad input (malformed, not malicious)
+	- e.g. `{"encoding": "utf-9"}`
+	- schema validation catches it, error returned as `tool_result`
+
+- Bad input (malicious/destructive)
+	- e.g. `rm -rf /`
+	- contained via sandboxing (Docker/gVisor), resource limits (`ulimit`, `timeout`, no network by default)
 
 
 
