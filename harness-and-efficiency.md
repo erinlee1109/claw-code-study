@@ -27,35 +27,39 @@
 - LLMs receive all conversation history in the current session, every time
 - Example: 
 
-	Dialogue
+	**Dialogue**
 
-		User: "What's the time complexity of binary search?"
-		Model: ""Binary search runs..."
-		User: "What's the weather in San Jose today?"
+	```
+	User: "What's the time complexity of binary search?"
+	Model: "Binary search runs..."
+	User: "What's the weather in San Jose today?"
+	```
 
-	Request (HTTP)
+	**Request (HTTP)**
 
-		POST /v1/messages HTTP/1.1
-		Host: api.anthropic.com
+	```json
+	POST /v1/messages HTTP/1.1
+	Host: api.anthropic.com
 
-		{
-		  "model": "claude-sonnet-4-6",
-		  "max_tokens": 1024,
-		  "messages": [
-		    {
-		      "role": "user",
-		      "content": "What's the time complexity of binary search?"
-		    },
-		    {
-		      "role": "assistant",
-		      "content": "Binary search runs in O(log n) time, since it halves the search space on each comparison."
-		    },
-		    {
-		      "role": "user",
-		      "content": "What's the weather in San Jose today?"
-		    }
-		  ]
-		}
+	{
+	  "model": "claude-sonnet-4-6",
+	  "max_tokens": 1024,
+	  "messages": [
+	    {
+	      "role": "user",
+	      "content": "What's the time complexity of binary search?"
+	    },
+	    {
+	      "role": "assistant",
+	      "content": "Binary search runs in O(log n) time, since it halves the search space on each comparison."
+	    },
+	    {
+	      "role": "user",
+	      "content": "What's the weather in San Jose today?"
+	    }
+	  ]
+	}
+	```
 
 - Notice the ENTIRE first exchange gets resent. 
 - Nothing is "remembered" server-side by the model.
@@ -83,14 +87,14 @@
 
 ## Agent Execution Loop
 
-=========================
+```
 while not done:
     1. assemble context (system prompt + history + files + tool results)
     2. call the model
     3. parse output: text response, or a tool-call request?
     4. if tool-call: execute it locally, capture result, go to 1
     5. if text/done: show to user, wait for next input
-=========================
+```
 
 
 
@@ -108,17 +112,19 @@ while not done:
 - What tools exist, what they do, and what arguments they need 
 - Example: 
 
-	{
-	  "name": "read_file",
-	  "description": "Reads the contents of a file at a given path",
-	  "input_schema": {
-	    "type": "object",
-	    "properties": {
-	      "path": { "type": "string", "description": "Absolute file path" }
-	    },
-	    "required": ["path"]
-	  }
-	}
+```json
+{
+  "name": "read_file",
+  "description": "Reads the contents of a file at a given path",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "path": { "type": "string", "description": "Absolute file path" }
+    },
+    "required": ["path"]
+  }
+}
+```
 
 - Recommended practice: Turn off MCPs you don't need 
 
@@ -127,34 +133,40 @@ while not done:
 
 - Model decides it needs to read a file
 - Model requests tool use "read_file"
-- tool_use_id links the result back to this request 
+- `tool_use_id` links the result back to this request 
 
 - Example: 
 
-	{
-	  "type": "tool_use",
-	  "id": "toolu_01ABC",
-	  "name": "read_file",
-	  "input": { "path": "/data/notes.txt" }
-	}
+```json
+{
+  "type": "tool_use",
+  "id": "toolu_01ABC",
+  "name": "read_file",
+  "input": { "path": "/data/notes.txt" }
+}
+```
 
 
 ## Harness executes 
 
 - Harness: code sitting between model <> real world
 
-- Sees tool_use in model's response 
+- Sees `tool_use` in model's response 
 - Opens the file on disk
 
-	fs.readFile('/data/notes.txt')
+```javascript
+fs.readFile('/data/notes.txt')
+```
 
-- Append tool_result to context window 
+- Append `tool_result` to context window 
 
-	{
-	  "type": "tool_result",
-	  "tool_use_id": "toolu_01ABC",
-	  "content": "Meeting notes: discuss Q3 roadmap, budget review..."
-	}
+```json
+{
+  "type": "tool_result",
+  "tool_use_id": "toolu_01ABC",
+  "content": "Meeting notes: discuss Q3 roadmap, budget review..."
+}
+```
 
 - Harness sends the ENTIRE context window to model 
 	
@@ -175,11 +187,13 @@ while not done:
 - Model has no concept of "done"
 - Model may need to use a series of tools
 - How can harness decide if the work is done?
-- Every model response includes the field: stop_reason 
+- Every model response includes the field: `stop_reason` 
 
-	stop_reason: "tool_use" — model needs more info. LOOP. 
-	stop_reason: "end_turn" — model has finished 
-	... 
+```
+stop_reason: "tool_use" — model needs more info. LOOP. 
+stop_reason: "end_turn" — model has finished 
+...
+``` 
 
 
 
@@ -193,8 +207,8 @@ while not done:
 
 - Skills (dynamically loaded)
 	- Name + description always sent in HTTP call to model 
-	- Model outputs "tool_use" block
-	- Harness sends the entire text "tool_result"
+	- Model outputs `tool_use` block
+	- Harness sends the entire text `tool_result`
 	- REMINDER: If your skill is too long, it can take up a lot of context window
 
 - Memory
@@ -203,10 +217,10 @@ while not done:
 
 - File context 
 	- Cursor: RAG. Pre-indexing
-	- Claude Code: Explore filesystem live (grep, glob, read)
-		- glob: pattern-match filenames. **/*test*.py
-		- grep: text search across repo
-		- read_file: open specific file
+	- Claude Code: Explore filesystem live (`grep`, `glob`, `read`)
+		- `glob`: pattern-match filenames. `**/*test*.py`
+		- `grep`: text search across repo
+		- `read`: open specific file
 
 - Conversation history
 - Tool result
@@ -254,7 +268,7 @@ while not done:
 
 ## Permissions
 - Harness is the gatekeeper 
-- Enforces permission gate before all tool_call 
+- Enforces permission gate before all `tool_use` calls
 	- Allow 
 	- Ask user
 	- Block
@@ -262,13 +276,13 @@ while not done:
 
 - Hooks: Code that runs on trigger to automatically enforce constraints 
 	- Common hooks
-		- PreToolUse: block call, modify input
-		- PostToolUse: inspect result 
+		- `PreToolUse`: block call, modify input
+		- `PostToolUse`: inspect result 
 
-	- Example, "never touch .env"
+	- Example, "never touch `.env`"
 		- Model can't follow rules 
-		- Model outputs tool_use request to read the .env file 
-		- Harness's PreToolUse blocks it 
+		- Model outputs `tool_use` request to read the `.env` file 
+		- Harness's `PreToolUse` blocks it 
 
 
 ## Containment
@@ -276,12 +290,12 @@ while not done:
 - Philosophy: Never trust the model. Build a system to contain the consequences. 
 
 - Bad input (malformed, not malicious)
-	- e.g. {"encoding": "utf-9"}
-	- schema validation catches it, error returned as tool_result
+	- e.g. `{"encoding": "utf-9"}`
+	- schema validation catches it, error returned as `tool_result`
 
 - Bad input (malicious/destructive)
 	- e.g. `rm -rf /`
-	- contained via sandboxing (Docker/gVisor), resource limits (ulimit, timeout, no network by default)
+	- contained via sandboxing (Docker/gVisor), resource limits (`ulimit`, `timeout`, no network by default)
 
 
 
@@ -297,13 +311,13 @@ while not done:
 	- Skills
 	- Conversation history
 
-- Where is it cached? KV Cache
+- Where is it cached? `KV Cache`
 	 - Stored in remote GPU as mathematical representation: Key-Value States/Embeddings
 	 - Cache is unique to specific model. Each model caches differently
 
-- What is TTL (Time To Live)
+- What is `TTL` (Time To Live)
 	- 5 min ~ 1 hour
-	- Every time you send a message, TTL resets and keeps the cache
+	- Every time you send a message, `TTL` resets and keeps the cache
 	- After 5 min, clears the cache
 
 - What does it mean to me? 
