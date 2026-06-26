@@ -41,7 +41,7 @@ Store data in **relational database**
 - Table 2: Posts
 - Table 3: Follow relationships
 
-![Relational schema](social-network-relational-schema.png)
+![Relational schema](assets/social-network-relational-schema.png)
 
 **Home timeline** is the **main read operation**
 - Display recent posts from following
@@ -98,7 +98,7 @@ Followers should see new posts within five seconds
 	- Heavy. But better than 400 million lookups per second
 
 
-![Fan-out](fan-out.png)
+![Fan-out](assets/fan-out.png)
 
 Materialized view
 
@@ -137,7 +137,7 @@ Extreme cases:
 		- Incoming request needs to wait
 
 
-![Graph](throughput-response-time.png)
+![Graph](assets/throughput-response-time.png)
 
 
 ### When an overloaded system won't recover
