@@ -1,3 +1,4 @@
+
 # Chapter 2: Defining Nonfunctional Requirements
 
 **Functional Requirements**
@@ -100,15 +101,14 @@ Followers should see new posts within five seconds
 
 ![Fan-out](assets/fan-out.png)
 
-Materialized view
-
+**Materialized view**
 - **Materialization**: process of precomputing & updating the results of a query
 - **Materialized view**:
 	- Speeds up reads, but a lot more work on writes
 	- e.g. timeline cache
 
 
-Extreme cases:
+**Extreme cases**
 * User is following a large number of accounts & those accounts post a lot
 	* Problem: User has high rate of writes to their materialized timeline
 	* Solution: Acceptable to drop some writes
@@ -129,24 +129,26 @@ Extreme cases:
 	- Unit of measurement is "x per second"
 	- e.g. "posts per second", "timeline writes per second"
 
-- Throughput and response time are related
-	- Response time increases as load increases
-	- Queueing:
-		- Request arrives on highly loaded system
-		- CPU is handling earlier request
-		- Incoming request needs to wait
+**Throughput and response time are related**
+- Response time increases as load increases
+- Queueing:
+	- Request arrives on highly loaded system
+	- CPU is handling earlier request
+	- Incoming request needs to wait
 
 
 ![Graph](assets/throughput-response-time.png)
 
 
 ### When an overloaded system won't recover
-System can enter a vicious cycle where it becomes less efficient and even more overloaded
+
+**Retry storm**
+- System can enter a vicious cycle where it becomes less efficient and even more overloaded
 - Gets worse when clients time out and resend their requests
 - "Retry storm" overloads overloaded system, causing "metastable failure"
 	- Need reboot or reset the system
 
-Solutions
+**Solutions**
 - Exponential backoff
 	- Increase & randomize time between retries
 - Circuit breaker / token bucket algorithm
@@ -170,37 +172,38 @@ Solutions
 - **Head-of-line blocking**: Small number of slow requests can hold up the subsequent requests
 
 
-Response time can vary with random delays
+**Response time can vary with random delays**
 - Context switch to background process
 - Loss of network packet -> TCP retransmission
 - Garbage collection pause
 - Page fault forcing a read from disk
 - Mechanical vibrations in the server deck...
 
-
+![Graph](assets/response-time.png)
 
 ## Average, Median, and Percentiles
 (ms: milliseconds)
 
-- Response time can vary
-	- Need to measure from client side
-	- Measure as a *distribution* of values
-
-
+**Response time can vary**
+- Need to measure from client side
+	- Measure as a ***distribution** of values*
 - *Average* response time is not a good metric
 	- Doesn't tell you how many users experienced delay
 
-- Percentiles is the better / common metric
-	- Sort response times from fastest -> slowest
-	- **p50**, also the median
-		- If median is 200ms, half of requests took less than 200ms
-		- And the other half took longer
-	- **p95**
-		- 95th percentile response time: 1.5s
-		- 95 out of 100 requests took less than 1.5s
-	- **p99**
-	- **p999**, 99.9%
+**Percentiles is the better / common metric**
+- Sort response times from fastest -> slowest
+- **p50**, also the median
+	- If median is 200ms, half of requests took less than 200ms
+	- And the other half took longer
+- **p95**
+	- 95th percentile response time: 1.5s
+	- 95 out of 100 requests took less than 1.5s
+- **p99**
+- **p999**, 99.9%
 
+![Graph](assets/percentiles.png)
+
+**Tail latencies**
 - High percentiles, i.e. tail latencies, directly impact user experience
 - For Amazon,
 	- customers with slowest requests had most data on their accounts
@@ -208,63 +211,56 @@ Response time can vary with random delays
 - NOT optimizing for 99.99 is deemed acceptable due to diminishing returns
 
 ## Use of Response Time Metrics
+**High percentiles are important**
+- Especially in backend services that are **called multiple times** as part of a **single end-user request**
+- Parallel calls still need to wait for the slowest parallel call
+	- **Tail latency amplification**
 
-- High percentiles
-	- important in backend services that are **called multiple times** as part of a **single end-user request**
-- User response time significantly increased
-	- Request needs to wait for the slowest of the parallel calls
-	- individual backend services perform perfectly but hit tail latency (e.g., p99) only 1% of the time
-- **Tail latency amplification**
-	- rare, slow individual component delays (the "tail") become highly magnified at the system level
-	- a phenomenon in distributed systems
+**Percentiles are used in**
+- **Service level objectives (SLOs)**
+	- Example target:
+		- median response time of less than 200 ms
+		- 99th percentile under 1 second
+		- 99.9% of valid requests in non-error responses
+- **Service level agreements (SLAs)**
+	- Contract that specifies what happens if SLO is not met
+	- Example:
+		- Customers entitled to a refund
 
-- Percentiles are used in
-	- **Service level objectives (SLOs)**
-		- Example target:
-			- median response time of less than 200 ms
-			- 99th percentile under 1 second
-			- 99.9% of valid requests in non-error responses
-	- **Service level agreements (SLAs)**
-		- Contract that specified what happens if SLO is not met
-		- Example:
-			- Customers entitled to a refund
-
-
-### Computing Percentiles
+![Graph](assets/slow-requests.png)
 
 ## Reliability and Fault Tolerance
 
-- Typical software expectation
-	- Perform the function user expected
-	- Tolerate the user making mistakes
-	- Good enough performance for expected load and data volume
-	- Prevent unauthorized access / abuse
+**Typical software expectation**
+- Perform the function user expected
+- Tolerate the user making mistakes
+- Good enough performance for expected load and data volume
+- Prevent unauthorized access / abuse
 
+**Fault vs. Failure**
 - **Fault**: particular part of a system stops working
 	- Single hard drive malfunction, single machine crash, etc
-
 - **Failure**: System as a whole stops providing required service. Did not meet SLO.
-
-- Fault vs. Failure
 	- If the system consists of a single hard drive that stopped -> failed
 	- If system consists of multiple hard drive -> fault
 
 
 ### Fault Tolerance
 
-- Fault-tolerant system can continue to provide required service to users despite faults
-- Social network example:
-	- Machine that writes to timelines crashed during fan-out process
-		- Fan-out process: writing to timelines after a user posts
-	- Ensure another machine can take over
-		- Without missing any posts
-		- Without duplicating any posts, i.e. exactly-once semantics
+**Fault-tolerant system**: can continue to provide required service to users despite faults.
 
-- Fault injection testing / chaos engineering
-	- Deliberately introduce errors / faults to evaluate how it responds
+Social network example:
+- Machine that writes to timelines crashed during fan-out process
+	- Fan-out process: writing to timelines after a user posts
+- Ensure another machine can take over
+	- Without missing any posts
+	- Without duplicating any posts, i.e. exactly-once semantics
+
+**Fault injection testing** / chaos engineering
+- Deliberately introduce errors / faults to evaluate how it responds
 
 ### Hardware and Software Faults
-
+**Things that can go wrong**
 - Approx 2 - 5% of magnetic hard drives fail per year
 - Approx 0.5 - 1% of solid state drives (SSDs) fail per year
 - Approx 1 in 1,000 machines has a CPU core that computes the wrong result occasionally
@@ -272,7 +268,7 @@ Response time can vary with random delays
 - Entire datacenter might become unavailable
 
 ### Tolerating hardware faults through redundancy
-Unreliable hardware?
+**Unreliable hardware?**
 - Add redundancy to individual hardware components to reduce failure rate
 	- RAID configuration:
 		- spread data across multiple disks
@@ -281,12 +277,12 @@ Unreliable hardware?
 	- Hot-swappable CPUs
 	- Batteries, diesel generators for backup power in datacenters
 
-Effective redundancy
+**Effective redundancy**
 - Redundancy is most effective when faults are independent
 	- where one fault does not change the likelihood of another fault occurring
 - BUT component failures have significant correlations
 
-Distributed systems
+**Distributed systems**
 - Can tolerate hardware failures
 - Cloud systems focus less on machine reliability
 	- More on software fault tolerance
@@ -301,14 +297,14 @@ Distributed systems
 
 - Hardware failures are weakly correlated
 	- If one disk fails, other disk is likely fine
-- Software failures are highly correlated
+- **Software failures are highly correlated**
 	- Series of bugs resulting in data loss
 	- Service dependency resulting in corrupted responses
 	- Integration bugs
 	- Cascading failures
 - Such bugs are hard to find, and lie dormant for a long time
 
-Do lots of small things
+**Do lots of small things**
 - careful planning on assumptions & interactions
 - thorough testing
 - process isolation
@@ -318,18 +314,18 @@ Do lots of small things
 - monitoring...
 
 ### Humans and Reliability
-Postmortems
+**Postmortems**
 - Blaming people for mistakes is counterproductive
 - Host blameless postmortems
 	- Share details of incidents to prevent similar issues in the future
 
-Minimize impact
+**Minimize impact**
 - thorough testing
 - rollback mechanism
 - gradual code rollout
 - detailed & clear monitoring
 
-How important is reliability?
+**How important is reliability?**
 - Can lead to lost productivity
 - Lost revenue
 - Permanent data loss
@@ -338,19 +334,156 @@ How important is reliability?
 - Increased load is a common reason for degradation
 - Ability to cope with increased load
 
-Asking the right questions
+**Asking the right questions**
 - What are our options to scale?
 - How to add computing resources to handle more load?
 - When will we hit the limits?
 
 ### Understanding Load
+- First, get a clear understanding of the current load
+- Then, discuss growth questions
+	- What happens if our load doubles?
+
+**Measure of throughput**
+- Requests per second
+- gigabytes of new data arriving per day
+- number of shopping cart checkouts per hour
+
+**Peak of a variable quantity**
+- number of simultaneously online users
+
+**Other stats**
+- Ratio of reads vs writes in DB
+- Cache hit rate
+- # of data items per user (e.g. followers)
+
+**Usual goals:**
+- Keep performance of the system within SLA requirements
+- Minimize the cost of running the system
+- Linear scalability: when doubling resources can handle twice the load
+
+
 ### Shared-Memory, Shared-Disk, and Shared-Nothing Architectures
+
+**Vertical scaling / scaling up**
+- Move to more powerful machine
+- A machine with more CPU cores, more RAM, more disk space
+
+**Shared-memory architecture**
+- parallelism on a single machine
+
+**Shared-disk architecture**
+- Several machines with independent CPUs and RAM
+- Stores data on an array of shared disks
+- Connected via a fast network
+	- "network attached storage" (NAS)
+	- "storage area network" (SAN)
+- Traditionally used for on-premise data warehousing
+
+**Shared-nothing architecture**
+- i.e. horizontal scaling / scaling out
+- Distributed system with multiple nodes
+- Each node has own CPUs, RAM, disks
+- Advantage: potential to scale linearly
+- Downsides: Requires explicit sharding, complexity for distributed systems
+
 ### Principles for Scalability
+**No such thing as a one-size-fits-all scalable architecture**
+- Highly specific to application
+	- Handle 100,000 requests per second, each 1kB in size
+	- Handle 3 requests per minute, each 2 GB in size
+	- Both have same data throughput: 100MB/second
+
+**General principle**
+- Break into smaller components
+- Components operate independently from one another
+- Used by...
+	- microservices
+	- sharding
+	- stream processing
+	- shared-nothing architecture
+- Don't make things more complicated than necessary
 
 ## Maintainability
+**Software cost** comes from...
+- Ongoing maintenance
+	- fixing bugs
+	- keep system operational
+	- investigate failures
+	- adapt to changes
+	- technical debt
+- Not initial development
+
+**Maintenance** of systems is as much a **people problem** as a technical one
+- outdated tech
+- institutional knowledge
+- other people's mistakes..
+
+**Design with maintenance** in mind
+- Operability
+- Simplicity
+- Evolvability
+
 ### Operability: Making Life Easy for Operations
 
+**Human processes**
+- As important as software tools
+- Can work around the limitations of bad/incomplete software
+
+**Automation**
+- Automation is essential in large-scale systems
+- BUT there are always edge cases that cannot be resolved by automation
+- greater automation requires skilled operators
+
+**Good operability** with data systems
+- Monitoring tools (what+when) with observability tools (why it broke)
+- Avoid dependency on individual machines
+- Good documentation
+- Self-healing + manual control
+- Exhibit predictable behavior
+
 ### Simplicity: Managing Complexity
+**Complex software has greater risk of introducing bugs**
+- Essential complexity: inherent in problem domain
+- Accidental complexity: Limitations of tooling
+
+**Manage complexity with abstraction**
+- Programming languages
+- SQL query
+- Application code
+	- design patterns
+	- domain-driven design (DDD)
+
 ### Evolvability: Making Change Easy
 
+**Systems will be in constant flux**
+- New info, new feature request
+- Unanticipated use case
+- Business priorities
+- Legal changes
+
+**Agile working patterns**
+- provides framework to adapt to change
+- test-driven development (TDD)
+
+**Irreversibility**
+- Major factor that makes changes difficult in large systems
+	- e.g. Migrating from one database to another
+- Minimize irreversibility to improve flexibility
+
 ## Summary
+
+**Nonfunctional requirements**
+- **performance**
+	- measuring performance (SLO, SLA) for social media
+- **reliability**
+	- Fault-tolerance techniques
+	- Hardware faults vs. software faults
+	- Hosting blameless postmortems
+- **scalability**
+	- Ensure performance stays the same when the load grows
+	- Break a task into smaller parts & operate independently
+- **maintainability**
+	- Supporting operations teams
+	- Managing complexity
+	- Making applications easy to evolve
